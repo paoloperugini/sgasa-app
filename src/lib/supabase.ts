@@ -1,8 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import { UserExam } from "./types";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://boeqzwsaofdworzmyqao.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_HtUeG1fdnoMPqu4v6_5PjQ_Ufb50B2Q";
+const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const supabaseUrl = envUrl && envUrl.startsWith("http")
+  ? envUrl
+  : "https://boeqzwsaofdworzmyqao.supabase.co";
+
+const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const supabaseAnonKey = envKey && envKey.length > 0
+  ? envKey
+  : "sb_publishable_HtUeG1fdnoMPqu4v6_5PjQ_Ufb50B2Q";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
