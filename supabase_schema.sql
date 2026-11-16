@@ -123,3 +123,56 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
   END IF;
 END $$;
+
+-- ==============================================================================
+-- 4. TABELLA BACHECA CONDIVISA IN TEMPO REALE (board_messages)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.board_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    author_name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Indici per performance su data di pubblicazione e utente
+CREATE INDEX IF NOT EXISTS idx_board_messages_created_at ON public.board_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_board_messages_user_id ON public.board_messages(user_id);
+
+-- Abilitazione Row Level Security (RLS)
+ALTER TABLE public.board_messages ENABLE ROW LEVEL SECURITY;
+
+-- Policy RLS per la lettura: tutti gli utenti autenticati possono leggere la bacheca
+DROP POLICY IF EXISTS "Gli utenti autenticati possono leggere la bacheca" ON public.board_messages;
+CREATE POLICY "Gli utenti autenticati possono leggere la bacheca"
+ON public.board_messages
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Policy RLS per l'inserimento: gli utenti autenticati possono pubblicare con il proprio user_id
+DROP POLICY IF EXISTS "Gli utenti autenticati possono inserire messaggi" ON public.board_messages;
+CREATE POLICY "Gli utenti autenticati possono inserire messaggi"
+ON public.board_messages
+FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);
+
+-- Policy RLS per la cancellazione: ognuno può cancellare esclusivamente i propri messaggi
+DROP POLICY IF EXISTS "Gli utenti possono eliminare solo i propri messaggi" ON public.board_messages;
+CREATE POLICY "Gli utenti possono eliminare solo i propri messaggi"
+ON public.board_messages
+FOR DELETE
+TO authenticated
+USING (auth.uid() = user_id);
+
+-- Abilita Supabase Realtime per board_messages
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'board_messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.board_messages;
+  END IF;
+END $$;

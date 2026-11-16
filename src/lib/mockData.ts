@@ -495,35 +495,4 @@ export const pastMatches: FootballMatch[] = [
   },
 ];
 
-export const initialNotices: Notice[] = [
-  {
-    id: "notice-1",
-    authorId: "stud-2",
-    authorName: "Andrea Rossi (Resp. Calciotto)",
-    createdAt: "2026-11-12T18:00:00Z",
-    title: "⚽ Convocazioni Lunedì sera al Green Club!",
-    content: "Siamo già a 16 confermati per l'8vs8 di lunedì ore 21:00. Ricordatevi maglia bianca di scorta e 6€ esatti per la quota campo!",
-    tag: "Calciotto",
-    likes: 12,
-  },
-  {
-    id: "notice-2",
-    authorId: "stud-1",
-    authorName: "Marco Valenti (Presidente)",
-    createdAt: "2026-11-11T14:30:00Z",
-    title: "📚 Gruppo Studio Anatomia Umana 1 giovedì",
-    content: "Giovedì dopo le lezioni ci troviamo in aula studio per ripetere apparato locomotore e cardiovascolare in vista dell'appello.",
-    tag: "Studio",
-    likes: 8,
-  },
-  {
-    id: "notice-3",
-    authorId: "stud-6",
-    authorName: "Lorenzo Moretti",
-    createdAt: "2026-11-10T11:00:00Z",
-    title: "🚀 Benvenuti sulla Web App ufficiale S.G.A.S.A.!",
-    content: "Tutto centralizzato: orari delle lezioni, countdown esami e convocazioni calciotto. Salvatela sui preferiti del browser!",
-    tag: "Generale",
-    likes: 15,
-  },
-];
+export const initialNotices: Notice[] = [];

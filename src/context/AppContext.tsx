@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from "react";
 import { User } from "@supabase/supabase-js";
-import { Student, Lesson, Exam, FootballMatch, Notice, Profile, UserExam, OnlinePresenceUser } from "../lib/types";
+import { Student, Lesson, Exam, FootballMatch, Notice, Profile, UserExam, OnlinePresenceUser, BoardMessage } from "../lib/types";
 import { supabase, syncFullOfficialCurriculum, resetToOfficialCurriculum } from "../lib/supabase";
 import { storage } from "../lib/storage";
 import { AuthScreen } from "../components/auth/AuthScreen";
@@ -57,7 +57,14 @@ interface AppContextType {
   addMatch: (match: Omit<FootballMatch, "id">) => void;
   updateMatch: (match: FootballMatch) => void;
 
-  // Notices / Board
+  // Supabase Board Messages (Bacheca condivisa in tempo reale)
+  boardMessages: BoardMessage[];
+  isLoadingBoard: boolean;
+  addBoardMessage: (content: string) => Promise<{ success: boolean; error?: string }>;
+  deleteBoardMessage: (id: string) => Promise<{ success: boolean; error?: string }>;
+  fetchBoardMessages: () => Promise<void>;
+
+  // Notices / Board (Legacy compatibility)
   notices: Notice[];
   addNotice: (notice: Omit<Notice, "id" | "createdAt" | "likes">) => void;
   likeNotice: (id: string) => void;
@@ -102,10 +109,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Supabase User Exams (Libretto Personale)
   const [userExams, setUserExams] = useState<UserExam[]>([]);
 
-  // Local state for lessons, matches, notices
+  // Supabase Board Messages (Bacheca Condivisa)
+  const [boardMessages, setBoardMessages] = useState<BoardMessage[]>([]);
+  const [isLoadingBoard, setIsLoadingBoard] = useState(false);
+
+  // Local state for lessons, matches
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [matches, setMatches] = useState<FootballMatch[]>([]);
-  const [notices, setNotices] = useState<Notice[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
@@ -179,6 +189,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // --- FETCH REALTIME BOARD MESSAGES ---
+  const fetchBoardMessages = useCallback(async () => {
+    try {
+      setIsLoadingBoard(true);
+      const { data, error } = await supabase
+        .from("board_messages")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Errore recupero messaggi bacheca da Supabase:", error);
+        return;
+      }
+
+      if (data) {
+        setBoardMessages(data as BoardMessage[]);
+      }
+    } catch (err) {
+      console.error("Eccezione fetchBoardMessages:", err);
+    } finally {
+      setIsLoadingBoard(false);
+    }
+  }, []);
+
   // --- FETCH CURRENT USER PROFILE ---
   const fetchUserProfile = useCallback(async (currentUser: User) => {
     try {
@@ -195,18 +229,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (data && data.first_name) {
         setProfile(data as Profile);
         setNeedsOnboarding(false);
-        // Carica il libretto esami di questo utente
-        await fetchUserExams(currentUser.id);
+        // Carica il libretto esami di questo utente e i messaggi in bacheca
+        await Promise.all([fetchUserExams(currentUser.id), fetchBoardMessages()]);
       } else {
         // Nessun profilo trovato: richiede Onboarding!
         setProfile(null);
         setNeedsOnboarding(true);
+        await fetchBoardMessages();
       }
     } catch (err) {
       console.error("Eccezione fetchUserProfile:", err);
       setNeedsOnboarding(true);
     }
-  }, [fetchUserExams]);
+  }, [fetchUserExams, fetchBoardMessages]);
 
   // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
@@ -256,7 +291,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Carica gli altri dati ausiliari
     setLessons(storage.getLessons());
     setMatches(storage.getMatches());
-    setNotices(storage.getNotices());
     setLastSyncTime(storage.getLastSync());
     fetchProfiles();
 
@@ -319,7 +353,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user, profile]);
 
-  // --- REALTIME SUBSCRIPTIONS (Profiles & User Exams) ---
+  // --- REALTIME SUBSCRIPTIONS (Profiles, User Exams & Board Messages) ---
   useEffect(() => {
     if (!user) return;
 
@@ -350,11 +384,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       )
       .subscribe();
 
+    const boardSubscription = supabase
+      .channel("realtime-board-messages")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "board_messages",
+        },
+        () => {
+          fetchBoardMessages();
+        }
+      )
+      .subscribe();
+
     return () => {
       profilesSubscription.unsubscribe();
       examsSubscription.unsubscribe();
+      boardSubscription.unsubscribe();
     };
-  }, [user, fetchProfiles, fetchUserExams]);
+  }, [user, fetchProfiles, fetchUserExams, fetchBoardMessages]);
 
   // Sign out
   const signOut = async () => {
@@ -362,6 +412,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setProfile(null);
     setUserExams([]);
+    setBoardMessages([]);
     setNeedsOnboarding(false);
   };
 
@@ -779,35 +830,106 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     storage.setMatches(updated);
   };
 
-  // Notices
-  const addNotice = (newNotice: Omit<Notice, "id" | "createdAt" | "likes">) => {
-    const authorDisplayName = activeStudent
-      ? `${activeStudent.name} (${activeStudent.role})`
-      : "Membro SGASA";
-    const notice: Notice = {
-      ...newNotice,
-      id: `notice-${Date.now()}`,
-      authorId: user?.id || "anonymous",
-      authorName: authorDisplayName,
-      createdAt: new Date().toISOString(),
-      likes: 0,
-    };
-    const updated = [notice, ...notices];
-    setNotices(updated);
-    storage.setNotices(updated);
+  // --- SUPABASE BOARD MESSAGES (BACHECA CONDIVISA IN TEMPO REALE) ---
+  const addBoardMessage = async (content: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) {
+      return { success: false, error: "Devi essere autenticato per scrivere in bacheca." };
+    }
+
+    const cleanContent = content.trim();
+    if (!cleanContent) {
+      return { success: false, error: "Il testo del messaggio non può essere vuoto." };
+    }
+
+    // Nome reale dal profilo dell'utente autenticato
+    const realAuthorName = profile
+      ? `${profile.first_name} ${profile.last_name}`.trim()
+      : (user.user_metadata?.full_name || user.email?.split("@")[0] || "Membro SGASA");
+
+    try {
+      const { data, error } = await supabase
+        .from("board_messages")
+        .insert({
+          user_id: user.id,
+          author_name: realAuthorName,
+          content: cleanContent,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Errore pubblicazione messaggio bacheca:", error);
+        return { success: false, error: error.message };
+      }
+
+      if (data) {
+        setBoardMessages((prev) => {
+          if (prev.some((m) => m.id === data.id)) return prev;
+          return [data as BoardMessage, ...prev];
+        });
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error("Eccezione addBoardMessage:", err);
+      return { success: false, error: err?.message || "Errore sconosciuto" };
+    }
   };
 
-  const likeNotice = (id: string) => {
-    const updated = notices.map((n) => (n.id === id ? { ...n, likes: n.likes + 1 } : n));
-    setNotices(updated);
-    storage.setNotices(updated);
+  const deleteBoardMessage = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) {
+      return { success: false, error: "Devi essere autenticato per eliminare un messaggio." };
+    }
+
+    try {
+      const { error } = await supabase
+        .from("board_messages")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Errore cancellazione messaggio bacheca:", error);
+        return { success: false, error: error.message };
+      }
+
+      setBoardMessages((prev) => prev.filter((m) => m.id !== id));
+      return { success: true };
+    } catch (err: any) {
+      console.error("Eccezione deleteBoardMessage:", err);
+      return { success: false, error: err?.message || "Errore sconosciuto" };
+    }
+  };
+
+  // Notices (Compatibilità legacy derivata dai messaggi reali di Supabase)
+  const notices: Notice[] = useMemo(() => {
+    return boardMessages.map((bm) => ({
+      id: bm.id,
+      authorId: bm.user_id,
+      authorName: bm.author_name,
+      createdAt: bm.created_at,
+      title: bm.content.length > 50 ? bm.content.slice(0, 47) + "..." : bm.content,
+      content: bm.content,
+      tag: "Generale" as const,
+      likes: 0,
+    }));
+  }, [boardMessages]);
+
+  const addNotice = (newNotice: Omit<Notice, "id" | "createdAt" | "likes">) => {
+    const text = newNotice.title && newNotice.title !== newNotice.content
+      ? `${newNotice.title}\n\n${newNotice.content}`
+      : newNotice.content;
+    addBoardMessage(text);
+  };
+
+  const likeNotice = (_id: string) => {
+    // No-op per compatibilità
   };
 
   const resetData = () => {
     storage.resetAll();
     setLessons(storage.getLessons());
     setMatches(storage.getMatches());
-    setNotices(storage.getNotices());
   };
 
   // RENDER GATING (Loading / Auth / Onboarding / App)
@@ -882,6 +1004,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateTeams,
         addMatch,
         updateMatch,
+        boardMessages,
+        isLoadingBoard,
+        addBoardMessage,
+        deleteBoardMessage,
+        fetchBoardMessages,
         notices,
         addNotice,
         likeNotice,

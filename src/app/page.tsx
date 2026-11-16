@@ -33,9 +33,8 @@ export default function DashboardPage() {
     lessons,
     exams,
     currentMatch,
-    notices,
-    likeNotice,
-    addNotice,
+    boardMessages,
+    addBoardMessage,
     updateAttendance,
   } = useApp();
 
@@ -98,16 +97,13 @@ export default function DashboardPage() {
   const confirmedPlayers = currentMatch?.roster.filter((r) => r.status === "present").length || 0;
   const costPerHead = confirmedPlayers > 0 ? (currentMatch?.pitchCost || 96) / confirmedPlayers : 0;
 
-  const handleCreateNotice = (e: React.FormEvent) => {
+  const handleCreateNotice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNoticeTitle || !newNoticeContent) return;
-    addNotice({
-      authorId: activeStudent?.id || "stud-1",
-      authorName: activeStudent?.name || "Membro SGASA",
-      title: newNoticeTitle,
-      content: newNoticeContent,
-      tag: newNoticeTag,
-    });
+    if (!newNoticeContent.trim()) return;
+    const fullText = newNoticeTitle.trim()
+      ? `${newNoticeTitle.trim()}\n\n${newNoticeContent.trim()}`
+      : newNoticeContent.trim();
+    await addBoardMessage(fullText);
     setNewNoticeTitle("");
     setNewNoticeContent("");
     setIsNoticeModalOpen(false);
@@ -392,8 +388,8 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-orange-400" />
-              <h3 className="text-base font-bold text-zinc-100">Bacheca S.G.A.S.A.</h3>
+              <MessageSquare className="w-4 h-4 text-orange-500 dark:text-orange-400" />
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Bacheca S.G.A.S.A.</h3>
             </div>
             <Button
               variant="outline"
@@ -406,40 +402,42 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-3">
-            {notices.slice(0, 3).map((notice) => (
-              <div
-                key={notice.id}
-                className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 transition-all"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <Badge variant={notice.tag === "Calciotto" ? "orange" : notice.tag === "Studio" ? "blue" : "zinc"}>
-                    {notice.tag}
-                  </Badge>
-                  <span className="text-[10px] text-zinc-500">
-                    {notice.authorName.split(" ")[0]}
-                  </span>
+            {boardMessages.length > 0 ? (
+              boardMessages.slice(0, 3).map((msg) => (
+                <div
+                  key={msg.id}
+                  className="p-4 rounded-2xl bg-white dark:bg-zinc-900/60 border border-zinc-200/90 dark:border-zinc-800/80 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-sm dark:shadow-none"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-orange-500" />
+                      {msg.author_name}
+                    </span>
+                    <span className="text-[11px] text-zinc-400">
+                      {formatItalianDate(msg.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300 line-clamp-3 leading-relaxed whitespace-pre-line">
+                    {msg.content}
+                  </p>
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
+                    <span className="text-[11px] text-orange-600 dark:text-orange-400 font-medium">
+                      Bacheca S.G.A.S.A.
+                    </span>
+                    <Link
+                      href="/bacheca"
+                      className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+                    >
+                      Tutti i messaggi &rarr;
+                    </Link>
+                  </div>
                 </div>
-                <h4 className="text-sm font-semibold text-zinc-100 mb-1">{notice.title}</h4>
-                <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
-                  {notice.content}
-                </p>
-                <div className="mt-3 flex items-center justify-between pt-2 border-t border-zinc-800/60">
-                  <button
-                    onClick={() => likeNotice(notice.id)}
-                    className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-red-400 transition-colors"
-                  >
-                    <Heart className="w-3.5 h-3.5 text-red-400/80 fill-red-400/20" />
-                    <span className="font-mono text-[11px]">{notice.likes}</span>
-                  </button>
-                  <Link
-                    href="/bacheca"
-                    className="text-[11px] text-zinc-500 hover:text-zinc-300"
-                  >
-                    Commenti &rarr;
-                  </Link>
-                </div>
+              ))
+            ) : (
+              <div className="p-8 rounded-2xl bg-white dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 text-center text-zinc-500 text-sm">
+                Nessun messaggio presente in bacheca. Sii il primo a scrivere!
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
